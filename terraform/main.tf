@@ -189,13 +189,39 @@ resource "azurerm_network_security_group" "dc_nsg" {
 
   # Security rule can also be defined with resource azurerm_network_security_rule, here just defining it inline.
   security_rule {
-    name                       = "Inbound"
+    name                       = "Inbound-RDP"
     priority                   = 100
     direction                  = "Inbound"
     access                     = "Allow"
     protocol                   = "Tcp"
     source_port_range          = "*"
     destination_port_range     = "3389"
+    source_address_prefix      = "*"
+    destination_address_prefix = "*"
+  }
+  tags = var.tags
+
+  security_rule {
+    name                       = "Inbound-HTTPS"
+    priority                   = 100
+    direction                  = "Inbound"
+    access                     = "Allow"
+    protocol                   = "Tcp"
+    source_port_range          = "*"
+    destination_port_range     = "443"
+    source_address_prefix      = "*"
+    destination_address_prefix = "*"
+  }
+  tags = var.tags
+
+  security_rule {
+    name                       = "Inbound-HTTP"
+    priority                   = 100
+    direction                  = "Inbound"
+    access                     = "Allow"
+    protocol                   = "Tcp"
+    source_port_range          = "*"
+    destination_port_range     = "80"
     source_address_prefix      = "*"
     destination_address_prefix = "*"
   }
@@ -214,8 +240,8 @@ resource "azurerm_subnet_network_security_group_association" "dc_subnet_nsg_asso
 # Sleep - we need this to give the DC enough time to provision before joining VMs
 ##########################################################
 
-resource "time_sleep" "wait_300_seconds" {
-  create_duration = "300s"
+resource "time_sleep" "wait_600_seconds" {
+  create_duration = "600s"
  depends_on = [azurerm_virtual_machine_extension.create-active-directory-forest]
 }
 
@@ -248,7 +274,7 @@ resource "azurerm_windows_virtual_machine" "member_vm" {
     version   = "latest"
   }
 
-  depends_on = [time_sleep.wait_300_seconds]
+  depends_on = [time_sleep.wait_600_seconds]
 
   tags = var.tags
 }
@@ -290,7 +316,7 @@ locals {
   import_command       = "Import-Module ADDSDeployment"
   password_command     = "$password = ConvertTo-SecureString ${var.safemode_password} -AsPlainText -Force"
   install_ad_command   = "Add-WindowsFeature -name ad-domain-services -IncludeManagementTools"
-  configure_ad_command = "Install-ADDSForest -CreateDnsDelegation:$false -DomainMode Win2012R2 -DomainName ${var.active_directory_domain} -DomainNetbiosName ${var.active_directory_netbios_name} -ForestMode Win2012R2 -InstallDns:$true -SafeModeAdministratorPassword $password -Force:$true"
+  configure_ad_command = "Install-ADDSForest -CreateDnsDelegation:$true -DomainMode Win2012R2 -DomainName ${var.active_directory_domain} -DomainNetbiosName ${var.active_directory_netbios_name} -ForestMode Win2012R2 -InstallDns:$true -SafeModeAdministratorPassword $password -Force:$true"
   shutdown_command     = "shutdown -r -t 10"
   powershell_command   = "${local.disable_fw}; ${local.import_command}; ${local.password_command}; ${local.install_ad_command}; ${local.configure_ad_command}; ${local.shutdown_command}; ${local.exit_code_hack}"
   
@@ -313,49 +339,49 @@ resource "azurerm_virtual_machine_extension" "create-active-directory-forest" {
     }
 SETTINGS
 }
-
+# 
 # Join VM to Active Directory Domain
 # based on https://github.com/ghostinthewires/terraform-azurerm-ad-join
-
-resource "azurerm_virtual_machine_extension" "join-domain" {
-  count = var.node_count
-  virtual_machine_id   = azurerm_windows_virtual_machine.member_vm[count.index].id
-  name                 = "join-domain"
-  publisher            = "Microsoft.Compute"
-  type                 = "JsonADDomainExtension"
-  type_handler_version = "1.3"
+# 
+# resource "azurerm_virtual_machine_extension" "join-domain" {
+#   count = var.node_count
+#   virtual_machine_id   = azurerm_windows_virtual_machine.member_vm[count.index].id
+#   name                 = "join-domain"
+#   publisher            = "Microsoft.Compute"
+#   type                 = "JsonADDomainExtension"
+#   type_handler_version = "1.3"
   
 
-  # NOTE: the `OUPath` field is intentionally blank, to put it in the Computers OU
-  settings = <<SETTINGS
-    {
-        "Name": "${var.active_directory_domain}",
-        "OUPath": "",
-        "User": "${var.active_directory_domain}\\${var.domadminuser}",
-        "Restart": "true",
-        "Options": "3"
-    }
-SETTINGS
+#   # NOTE: the `OUPath` field is intentionally blank, to put it in the Computers OU
+#   settings = <<SETTINGS
+#     {
+#         "Name": "${var.active_directory_domain}",
+#         "OUPath": "",
+#         "User": "${var.active_directory_domain}\\${var.domadminuser}",
+#         "Restart": "true",
+#         "Options": "3"
+#     }
+# SETTINGS
 
-  protected_settings = <<SETTINGS
-    {
-        "Password": "${var.domadminpassword}"
-    }
-SETTINGS
-}
+#   protected_settings = <<SETTINGS
+#     {
+#         "Password": "${var.domadminpassword}"
+#     }
+# SETTINGS
+# }
 
-resource "azurerm_virtual_machine_extension" "disable_fw_member" {
-  depends_on = [azurerm_virtual_machine_extension.join-domain]
-  count = var.node_count
-  virtual_machine_id   = azurerm_windows_virtual_machine.member_vm[count.index].id
-  name                 = "disable_fw"
-  publisher            = "Microsoft.Compute"
-  type                 = "CustomScriptExtension"
-  type_handler_version = "1.9"
+# resource "azurerm_virtual_machine_extension" "disable_fw_member" {
+#   depends_on = [azurerm_virtual_machine_extension.join-domain]
+#   count = var.node_count
+#   virtual_machine_id   = azurerm_windows_virtual_machine.member_vm[count.index].id
+#   name                 = "disable_fw"
+#   publisher            = "Microsoft.Compute"
+#   type                 = "CustomScriptExtension"
+#   type_handler_version = "1.9"
 
-  settings = <<SETTINGS
-    {
-        "commandToExecute": "powershell.exe -Command \"${local.powershell_command_disable_fw}\""
-    }
-SETTINGS
-}
+#   settings = <<SETTINGS
+#     {
+#         "commandToExecute": "powershell.exe -Command \"${local.powershell_command_disable_fw}\""
+#     }
+# SETTINGS
+# }
