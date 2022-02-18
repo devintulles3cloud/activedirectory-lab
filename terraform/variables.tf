@@ -82,7 +82,7 @@ variable "adminuser" {
 
 variable "active_directory_domain" {
   type = string
-  description = "The name of the Active Directory domain, for example `consoto.local`"
+  description = "The name of the Active Directory domain, for example `contoso.local`"
 }
 
 #safemode password
@@ -96,7 +96,7 @@ variable "safemode_password" {
 
 variable "active_directory_netbios_name" {
   type = string
-  description = "The netbios name of the Active Directory domain, for example `consoto`"
+  description = "The netbios name of the Active Directory domain, for example `Contoso`"
 }
 
 #Password for the default domain admin
